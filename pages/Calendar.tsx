@@ -205,7 +205,7 @@ export const Calendar: React.FC<CalendarProps> = ({ events, onSave, firms, emplo
                     className="h-10 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 hover:text-blue-400 border border-slate-700 rounded-xl flex items-center gap-2 transition-all font-bold text-sm shadow-lg group whitespace-nowrap"
                     title="İçinde bulunulan haftanın raporu"
                 >
-                    {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-calendar-week text-blue-500 group-hover:scale-110 transition-transform text-lg"></i>}
+                    {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-print text-blue-500 group-hover:scale-110 transition-transform text-lg"></i>}
                     <span>Bu Hafta</span>
                 </button>
 
@@ -213,9 +213,9 @@ export const Calendar: React.FC<CalendarProps> = ({ events, onSave, firms, emplo
                     onClick={handleDownloadMonthly}
                     disabled={loading}
                     className="h-10 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 hover:text-red-400 border border-slate-700 rounded-xl flex items-center gap-2 transition-all font-bold text-sm shadow-lg group whitespace-nowrap"
-                    title={`${monthNames[currentDate.getMonth()]} Ayı Raporunu İndir`}
+                    title={`${monthNames[currentDate.getMonth()]} Ayı Raporunu Yazdır`}
                 >
-                    {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-file-pdf text-red-500 group-hover:scale-110 transition-transform text-lg"></i>}
+                    {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-print text-red-500 group-hover:scale-110 transition-transform text-lg"></i>}
                     <span>{monthNames[currentDate.getMonth()]} Raporu</span>
                 </button>
 

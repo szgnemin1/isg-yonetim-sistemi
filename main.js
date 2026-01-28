@@ -1,11 +1,11 @@
-
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ES Module ortamında __dirname tanımlı değildir, manuel oluşturuyoruz.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const isDev = !app.isPackaged;
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -14,18 +14,46 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 768,
     title: "İSG Takip Pro",
-    icon: path.join(__dirname, 'dist', 'icon.png'), // Varsa ikon
+    frame: true, // Windows standart çerçevesini ve butonlarını geri getirir
+    // İkon dosyası dist/icon.png veya public/icon.png yolunda olmalı
+    icon: path.join(__dirname, isDev ? 'public' : 'dist', 'icon.png'),
+    backgroundColor: '#0f172a',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      // ÖNEMLİ: ESM projelerinde preload.js yerine preload.cjs kullanılır
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false // Yerel dosya ve internet erişimi için
     },
-    autoHideMenuBar: true
+    autoHideMenuBar: true // Dosya menüsünü gizle, sadece kapatma tuşları kalsın
   });
 
-  // Üretim ortamında derlenmiş dosyaları yükle
-  mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173');
+    console.log("Geliştirme modu: http://localhost:5173 yükleniyor...");
+  } else {
+    // Üretim modunda dist klasöründeki index.html yüklenir
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  }
+
+  // --- WINDOWS PENCERE KONTROLLERİ (IPC) ---
+  // Sistem çerçevesi kullanıldığı için bu IPC dinleyicilerine artık gerek yoktur, 
+  // ancak preload.js hatası vermemesi için boş bırakılabilir veya kaldırılabilir.
+  // Güvenlik için tutuyoruz ama işlevsiz kalacaklar.
+  ipcMain.on('window-min', () => mainWindow.minimize());
+  ipcMain.on('window-max', () => {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  });
+  ipcMain.on('window-close', () => mainWindow.close());
+  
+  // Pencere durumunu renderer'a bildir (ikon değişimi için)
+  mainWindow.on('maximize', () => mainWindow.webContents.send('window-state-change', 'maximized'));
+  mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-state-change', 'normal'));
 }
 
 app.whenReady().then(() => {

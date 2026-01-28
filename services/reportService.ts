@@ -58,8 +58,7 @@ export const ReportService = {
             label, 
             nextMonday, 
             nextSunday, 
-            data,
-            true // Auto Print Flag
+            data
         );
     },
 
@@ -69,7 +68,7 @@ export const ReportService = {
         startDate: Date, 
         endDate: Date,
         data: { firms: Firma[], employees: Calisan[], equipments: Ekipman[], risks: RiskAnalizi[], meetings?: KurulToplantisi[] },
-        autoPrint: boolean = false
+        autoPrint: boolean = true // Varsayılan olarak true yapıldı, ama alttaki kod zaten zorlayacak
     ) => {
         // 1. AYAR: Sayfa YATAY (Landscape) olsun
         const doc = new jsPDF({ orientation: 'landscape' });
@@ -267,11 +266,13 @@ export const ReportService = {
             doc.text(`${i} / ${pageCount}`, pageWidth - 10, doc.internal.pageSize.height - 5, { align: 'right' });
         }
 
-        if (autoPrint) {
-            doc.autoPrint();
-            window.open(doc.output('bloburl'), '_blank');
-        } else {
-            doc.save(`ISG_Listesi_${formatDateTR(todayStr).replace(/\./g, '-')}.pdf`);
-        }
+        // İNDİRME YERİNE DOĞRUDAN YAZDIRMA PENCERESİ AÇ
+        // doc.save(...) kaldırıldı.
+        
+        doc.autoPrint(); // Yazdır komutunu PDF içine gömer
+        
+        // Blob URL oluşturup yeni pencerede aç
+        const blobUrl = doc.output('bloburl');
+        window.open(blobUrl, '_blank');
     }
 };

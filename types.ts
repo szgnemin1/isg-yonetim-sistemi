@@ -92,4 +92,4 @@ export interface SpecialDay {
     backgroundImage?: string; // Arka plan resmi eklendi
 }
 
-export type Page = 'DASHBOARD' | 'FIRMALAR' | 'FIRMA_DETAY' | 'CALENDAR' | 'SETTINGS' | 'USERS' | 'REPORTS';
+export type Page = 'DASHBOARD' | 'FIRMALAR' | 'FIRMA_DETAY' | 'CALENDAR' | 'SETTINGS' | 'USERS';

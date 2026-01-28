@@ -1,21 +1,49 @@
-
 {
   "name": "isg-takip-pro-desktop",
-  "version": "2.2.0",
-  "description": "Rol tabanlı (Yönetici, Uzman, Sekreter) onay mekanizmalı İSG takip ve yönetim sistemi. (Offline/Local)",
+  "version": "2.2.1",
+  "description": "Rol tabanlı İSG takip ve yönetim sistemi.",
   "type": "module",
   "main": "main.js",
+  "author": "ISG Uzmani",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.isgtakip.pro",
+    "productName": "İSG Takip Pro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.1",
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
     "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",

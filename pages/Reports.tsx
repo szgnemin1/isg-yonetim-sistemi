@@ -70,11 +70,11 @@ export const Reports: React.FC<ReportsProps> = ({ firms, employees, equipments, 
         <div className="p-8 h-full overflow-y-auto bg-slate-900 text-slate-100">
             <header className="mb-8 border-b border-slate-800 pb-6">
                 <h2 className="text-3xl font-bold text-white flex items-center gap-3">
-                    <i className="fa-solid fa-file-pdf text-red-500"></i>
-                    Raporlar
+                    <i className="fa-solid fa-print text-red-500"></i>
+                    Raporlar & Yazdırma
                 </h2>
                 <p className="text-slate-400 mt-1">
-                    İleri tarihli haftalık ve aylık raporlar oluşturun. <br/>
+                    İleri tarihli haftalık ve aylık raporları görüntüleyin ve yazdırın. <br/>
                     <span className="text-xs text-amber-500"><i className="fa-solid fa-triangle-exclamation"></i> Raporlar, geçmişte kalmış (yapılmamış) acil işleri de otomatik içerir.</span>
                 </p>
             </header>
@@ -109,8 +109,8 @@ export const Reports: React.FC<ReportsProps> = ({ firms, employees, equipments, 
                         disabled={loading}
                         className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
-                        {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-download"></i>}
-                        {loading ? 'Hazırlanıyor...' : 'PDF İndir'}
+                        {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-print"></i>}
+                        {loading ? 'Hazırlanıyor...' : 'Yazdır'}
                     </button>
                 </div>
 
@@ -142,8 +142,8 @@ export const Reports: React.FC<ReportsProps> = ({ firms, employees, equipments, 
                         disabled={loading}
                         className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
-                        {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-download"></i>}
-                        {loading ? 'Hazırlanıyor...' : 'PDF İndir'}
+                        {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-print"></i>}
+                        {loading ? 'Hazırlanıyor...' : 'Yazdır'}
                     </button>
                 </div>
 

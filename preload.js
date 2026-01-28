@@ -1,9 +1,10 @@
-const { contextBridge } = require('electron');
 
-// Güvenli bir şekilde Renderer sürecine API'ler sunabiliriz.
-// Şu anlık localStorage kullandığımız için ekstra bir köprüye ihtiyaç duymuyoruz
-// ancak güvenlik standartları gereği bu dosya mevcut olmalıdır.
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  version: process.versions.electron
+  version: process.versions.electron,
+  minimize: () => ipcRenderer.send('window-min'),
+  toggleMaximize: () => ipcRenderer.send('window-max'),
+  close: () => ipcRenderer.send('window-close'),
+  onWindowStateChange: (callback) => ipcRenderer.on('window-state-change', (_event, value) => callback(value))
 });
