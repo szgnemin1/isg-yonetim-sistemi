@@ -2,9 +2,10 @@
 import React, { useState, useMemo } from 'react';
 import { Calisan, Firma, User } from '../types';
 import { calculateNextTrainingDate, formatDateTR, isExpired, isApproaching } from '../services/logic';
+import { StorageService } from '../services/storage';
 
 interface EmployeesProps {
-  employees: Calisan[];
+  employees: Calisan[]; // Tüm çalışanlar (Global liste)
   targetFirm: Firma;
   onSave: (data: Calisan[]) => void;
   isReadOnly?: boolean;
@@ -23,28 +24,32 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
   const [sortKey, setSortKey] = useState<SortKey>('adSoyad');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  // Form States
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpTc, setNewEmpTc] = useState('');
   const [newEmpTrainDate, setNewEmpTrainDate] = useState('');
   
+  // Re-Hire Logic State
+  const [rehireModalOpen, setRehireModalOpen] = useState(false);
+  const [rehireEmployee, setRehireEmployee] = useState<Calisan | null>(null);
+  
+  // Bulk Actions
   const [selectedEmpIds, setSelectedEmpIds] = useState<Set<string>>(new Set());
   const [isBulkUpdateOpen, setIsBulkUpdateOpen] = useState(false);
   const [bulkDate, setBulkDate] = useState('');
   const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
   const [bulkAddText, setBulkAddText] = useState('');
 
+  // Sadece bu firmanın çalışanlarını filtrele
   const firmEmployees = useMemo(() => employees.filter(e => e.firmaId === targetFirm.id), [employees, targetFirm.id]);
 
   // --- ONAY YETKİSİ KONTROLÜ ---
   const canApprove = useMemo(() => {
       if (!currentUser) return false;
-      // Yönetici her zaman onaylayabilir (Süper yetki)
       if (currentUser.role === 'ADMIN') return true;
-      // Sekreter asla onaylayamaz
       if (currentUser.role === 'SECRETARY') return false;
-      // Kullanıcı SADECE kendisine atanan firmayı onaylayabilir
       return currentUser.allowedFirmIds?.includes(targetFirm.id) || false;
   }, [currentUser, targetFirm.id]);
 
@@ -76,10 +81,7 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
       })
       .filter(e => {
           if (filterStatus === 'ALL') return true;
-          
-          if (e.onayDurumu === 'BEKLIYOR') {
-              return filterStatus === 'PENDING';
-          }
+          if (e.onayDurumu === 'BEKLIYOR') return filterStatus === 'PENDING';
 
           const expired = isExpired(e.sonrakiEgitimTarihi);
           const approaching = isApproaching(e.sonrakiEgitimTarihi);
@@ -92,7 +94,6 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
       });
 
     data.sort((a, b) => {
-        // Önce onay bekleyenleri en üste koy
         if (a.onayDurumu === 'BEKLIYOR' && b.onayDurumu !== 'BEKLIYOR') return -1;
         if (a.onayDurumu !== 'BEKLIYOR' && b.onayDurumu === 'BEKLIYOR') return 1;
 
@@ -111,16 +112,153 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
       else { setSortKey(key); setSortDir('asc'); }
   };
 
-  const handleSave = () => {
+  // --- SAVE LOGIC (TC KONTROLÜ DAHİL) ---
+  const handlePreSave = async () => {
     if (isReadOnly) return;
-    if (!newEmpName || !newEmpTrainDate || !newEmpTc) return;
+    if (!newEmpName || !newEmpTc) {
+        alert("Lütfen İsim ve TC Kimlik No giriniz.");
+        return;
+    }
+
+    // Eğer düzenleme modundaysak (TC değişmediyse direkt kaydet)
+    if (editingId) {
+        const currentEmp = employees.find(e => e.id === editingId);
+        if (currentEmp && currentEmp.tcNo === newEmpTc) {
+             performSave(employees); // Mevcut listeyi kullan
+             return;
+        }
+    }
+
+    // --- GLOBAL TC KONTROLÜ ---
+    // Tüm firmalardaki çalışanlar içinde bu TC var mı?
+    const existingEmp = employees.find(e => e.tcNo === newEmpTc && e.id !== editingId);
+
+    if (existingEmp) {
+        // 1. AYNI FİRMADA MI?
+        if (existingEmp.firmaId === targetFirm.id) {
+            if ((existingEmp.calismaDurumu || 'AKTIF') === 'AKTIF') {
+                alert("Bu TC Kimlik numarasına sahip personel zaten bu firmada AKTİF olarak çalışıyor.");
+                return;
+            } else {
+                // AYNI FIRMA - İŞTEN ÇIKMIŞ (RE-HIRE SENARYOSU)
+                handleRehireCheck(existingEmp);
+                return;
+            }
+        } 
+        // 2. FARKLI FİRMADA MI?
+        else {
+            // Firmalar listesini al (Firma adını göstermek için)
+            const allData = await StorageService.getAllData();
+            const oldFirm = allData.firms.find(f => f.id === existingEmp.firmaId);
+            const oldFirmName = oldFirm ? oldFirm.ad : "Bilinmeyen Firma";
+
+            // Kullanıcıya sor ve onayla
+            const confirmTransfer = window.confirm(
+                `BİLGİ: Bu personel şu anda "${oldFirmName}" firmasında kayıtlı.\n\n` +
+                `Transfer işlemini onaylıyor musunuz?\n` + 
+                `Onaylarsanız: "${oldFirmName}" firmasındaki kaydı 'İşten Ayrıldı' olarak işaretlenecek ve bu firmaya yeni kayıt açılacaktır.`
+            );
+
+            if (confirmTransfer) {
+                // --- TRANSFER MANTIĞI ---
+                // 1. Eski firmadaki personeli 'AYRILDI' yap ve çıkış tarihi ver
+                const todayStr = new Date().toISOString();
+                const updatedList = employees.map(e => 
+                    e.id === existingEmp.id 
+                    ? { ...e, calismaDurumu: 'AYRILDI' as const, cikisTarihi: todayStr } // as const TS hatası önler
+                    : e
+                );
+
+                // 2. Yeni kaydı oluşturmak için güncellenmiş listeyi gönder
+                performSave(updatedList);
+            }
+            return;
+        }
+    } else {
+        // Hiçbir yerde yok, temiz kayıt
+        performSave(employees);
+    }
+  };
+
+  // --- İŞE GERİ ALIM (RE-HIRE) KONTROLÜ ---
+  const handleRehireCheck = (emp: Calisan) => {
+      setIsFormOpen(false); // Normal formu kapat
+
+      // İşten çıkış tarihi yoksa bugünü baz al (eski kayıtlar için)
+      const exitDate = emp.cikisTarihi ? new Date(emp.cikisTarihi) : new Date(emp.sonEgitimTarihi); // Fallback
+      const today = new Date();
+      
+      // Ay farkını hesapla
+      const diffTime = Math.abs(today.getTime() - exitDate.getTime());
+      const diffMonths = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 30)); 
+
+      if (diffMonths > 6) {
+          alert(`Bu personel ${diffMonths} ay önce işten ayrılmış. \n6 ayı geçtiği için YENİDEN EĞİTİM VERİLMESİ ZORUNLUDUR.`);
+          // Düzenleme modunu aç ama tarihi temizle ve zorunlu tut
+          setEditingId(emp.id);
+          setNewEmpName(emp.adSoyad);
+          setNewEmpTc(emp.tcNo);
+          setNewEmpTrainDate(''); // Tarihi temizle
+          setIsFormOpen(true);
+      } else {
+          // 6 aydan az, kullanıcıya sor
+          setRehireEmployee(emp);
+          setRehireModalOpen(true);
+      }
+  };
+
+  // Re-hire Modal: Eğitim verildi
+  const handleRehireWithNewTraining = () => {
+      if (!rehireEmployee) return;
+      setRehireModalOpen(false);
+      // Formu aç, yeni tarih girmesini iste
+      setEditingId(rehireEmployee.id);
+      setNewEmpName(rehireEmployee.adSoyad);
+      setNewEmpTc(rehireEmployee.tcNo);
+      setNewEmpTrainDate(''); 
+      setIsFormOpen(true);
+      // Not: Kullanıcı formda tarihi girip kaydet'e basınca performSave çalışacak ve status AKTIF olacak.
+  };
+
+  // Re-hire Modal: Eski eğitim geçerli
+  const handleRehireWithOldTraining = () => {
+      if (!rehireEmployee) return;
+      // Doğrudan kaydet
+      const nextDate = calculateNextTrainingDate(rehireEmployee.sonEgitimTarihi, targetFirm.tehlikeSinifi);
+      const updatedEmp: Calisan = {
+          ...rehireEmployee,
+          calismaDurumu: 'AKTIF',
+          cikisTarihi: undefined, // Çıkış tarihini temizle
+          sonrakiEgitimTarihi: nextDate,
+          onayDurumu: currentUser?.role === 'SECRETARY' ? 'BEKLIYOR' : 'ONAYLANDI'
+      };
+      
+      onSave(employees.map(e => e.id === rehireEmployee.id ? updatedEmp : e));
+      setRehireModalOpen(false);
+      setRehireEmployee(null);
+      alert("Personel eski eğitim tarihiyle tekrar işe alındı.");
+  };
+
+  // performSave artık güncel listeyi parametre olarak alıyor (currentList)
+  // Bu sayede transfer işlemi sırasında önce eskiyi çıkarıp sonra yeniyi ekleyebiliyoruz.
+  const performSave = (currentList: Calisan[]) => {
+    if (!newEmpTrainDate) {
+        alert("Eğitim tarihi girilmesi zorunludur.");
+        return;
+    }
     const nextDate = calculateNextTrainingDate(newEmpTrainDate, targetFirm.tehlikeSinifi);
-    
-    // ROL MANTIĞI: Sekreter eklerse BEKLIYOR, User eklerse ONAYLANDI
     const isSecretary = currentUser?.role === 'SECRETARY';
 
     const newEmp: Calisan = editingId 
-        ? { ...firmEmployees.find(e => e.id === editingId)!, tcNo: newEmpTc, adSoyad: newEmpName, sonEgitimTarihi: newEmpTrainDate, sonrakiEgitimTarihi: nextDate }
+        ? { 
+            ...currentList.find(e => e.id === editingId)!, 
+            tcNo: newEmpTc, 
+            adSoyad: newEmpName, 
+            sonEgitimTarihi: newEmpTrainDate, 
+            sonrakiEgitimTarihi: nextDate,
+            calismaDurumu: 'AKTIF', // Düzenleme yapıldığında (veya re-hire'da) aktif olur
+            cikisTarihi: undefined // Eğer re-hire ise çıkış tarihini sil
+          }
         : { 
             id: crypto.randomUUID(), 
             firmaId: targetFirm.id, 
@@ -132,7 +270,13 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
             onayDurumu: isSecretary ? 'BEKLIYOR' : 'ONAYLANDI'
           };
     
-    onSave(editingId ? employees.map(e => e.id === editingId ? newEmp : e) : [...employees, newEmp]);
+    // Global listeyi güncelle
+    if (editingId) {
+        onSave(currentList.map(e => e.id === editingId ? newEmp : e));
+    } else {
+        onSave([...currentList, newEmp]);
+    }
+
     resetForm();
     if (isSecretary && !editingId) alert('Personel kaydedildi ve onay listesine gönderildi.');
   };
@@ -150,10 +294,17 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
 
   const handleSoftDelete = (empId: string) => {
       if (isReadOnly) return;
-      if (window.confirm('Bu çalışanı arşivlemek istiyor musunuz?')) {
-          onSave(employees.map(e => e.id === empId ? { ...e, calismaDurumu: 'AYRILDI' } : e));
+      if (window.confirm('Bu çalışanın İŞ ÇIKIŞINI vermek istiyor musunuz?')) {
+          const today = new Date().toISOString();
+          onSave(employees.map(e => e.id === empId ? { ...e, calismaDurumu: 'AYRILDI', cikisTarihi: today } : e));
           const newSet = new Set(selectedEmpIds); newSet.delete(empId); setSelectedEmpIds(newSet);
       }
+  };
+
+  const handleRestore = (empId: string) => {
+      // Arşivden manuel geri alma (Re-hire logic buraya da bağlanabilir ama basit tutuyoruz)
+      const emp = employees.find(e => e.id === empId);
+      if(emp) handleRehireCheck(emp);
   };
 
   const resetForm = () => { setIsFormOpen(false); setEditingId(null); setNewEmpName(''); setNewEmpTc(''); setNewEmpTrainDate(''); };
@@ -253,7 +404,7 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
              </div>
              <div className="flex bg-slate-900 rounded-md p-1 border border-slate-700">
                 <button onClick={() => setViewMode('ACTIVE')} className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${viewMode === 'ACTIVE' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Aktif</button>
-                <button onClick={() => setViewMode('ARCHIVE')} className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${viewMode === 'ARCHIVE' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Arşiv</button>
+                <button onClick={() => setViewMode('ARCHIVE')} className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${viewMode === 'ARCHIVE' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}>İşten Ayrılanlar</button>
              </div>
           </div>
           
@@ -309,7 +460,7 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
               let rowBg = index % 2 === 0 ? 'bg-slate-900' : 'bg-slate-850';
               if (isSelected) rowBg = 'bg-blue-900/20';
               else if (isPending) rowBg = 'bg-blue-900/10 border-l-2 border-l-blue-500'; // Pending için özel stil
-              else if (isExp) rowBg = 'bg-red-900/5';
+              else if (isExp && viewMode === 'ACTIVE') rowBg = 'bg-red-900/5';
 
               return (
                   <div key={emp.id} className={`group grid grid-cols-12 gap-4 px-4 py-3 border-b border-slate-800 items-center hover:bg-slate-800 transition-colors ${rowBg}`}>
@@ -346,10 +497,11 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
                       </div>
 
                       <div className="col-span-2">
-                          <div className={`text-xs font-mono font-bold ${isPending ? 'text-blue-300' : isExp ? 'text-red-400' : isApp ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          <div className={`text-xs font-mono font-bold ${viewMode === 'ARCHIVE' ? 'text-slate-500 line-through' : isPending ? 'text-blue-300' : isExp ? 'text-red-400' : isApp ? 'text-amber-400' : 'text-emerald-400'}`}>
                               {formatDateTR(emp.sonrakiEgitimTarihi)}
                           </div>
-                          {isExp && !isPending && <div className="text-[9px] text-red-500 font-bold uppercase tracking-wider">Süresi Doldu</div>}
+                          {isExp && !isPending && viewMode === 'ACTIVE' && <div className="text-[9px] text-red-500 font-bold uppercase tracking-wider">Süresi Doldu</div>}
+                          {viewMode === 'ARCHIVE' && emp.cikisTarihi && <div className="text-[9px] text-slate-500">Çıkış: {formatDateTR(emp.cikisTarihi)}</div>}
                       </div>
 
                       <div className="col-span-3 flex justify-end items-center gap-2">
@@ -372,10 +524,10 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
                                    {viewMode === 'ACTIVE' ? (
                                        <>
                                            <button onClick={() => handleEditClick(emp)} className="w-7 h-7 flex items-center justify-center rounded bg-slate-700 hover:bg-blue-600 text-slate-400 hover:text-white transition-colors" title="Düzenle"><i className="fa-solid fa-pen text-xs"></i></button>
-                                           <button onClick={() => handleSoftDelete(emp.id)} className="w-7 h-7 flex items-center justify-center rounded bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white transition-colors" title="Arşivle"><i className="fa-solid fa-box-archive text-xs"></i></button>
+                                           <button onClick={() => handleSoftDelete(emp.id)} className="w-7 h-7 flex items-center justify-center rounded bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white transition-colors" title="İşten Çıkart (Arşivle)"><i className="fa-solid fa-user-xmark text-xs"></i></button>
                                        </>
                                    ) : (
-                                       <button onClick={() => handleSoftDelete(emp.id)} className="w-7 h-7 flex items-center justify-center rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors" title="Geri Yükle"><i className="fa-solid fa-rotate-left text-xs"></i></button>
+                                       <button onClick={() => handleRestore(emp.id)} className="w-7 h-7 flex items-center justify-center rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors" title="İşe Geri Al"><i className="fa-solid fa-rotate-left text-xs"></i></button>
                                    )}
                                </div>
                            )}
@@ -406,10 +558,40 @@ export const Employees: React.FC<EmployeesProps> = ({ employees, targetFirm, onS
                 </div>
                 <div className="p-4 bg-slate-900 border-t border-slate-700 flex justify-end gap-3">
                     <button onClick={resetForm} className="px-3 py-1.5 text-slate-400 hover:text-white text-xs font-bold">İptal</button>
-                    <button onClick={handleSave} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold shadow-lg shadow-blue-600/20">Kaydet</button>
+                    <button onClick={handlePreSave} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold shadow-lg shadow-blue-600/20">Kaydet</button>
                 </div>
             </div>
         </div>
+      )}
+
+      {/* RE-HIRE MODAL (İşe Geri Alım - 6 Ay Kontrolü) */}
+      {rehireModalOpen && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4 animate-fade-in-down">
+              <div className="bg-slate-800 rounded-lg shadow-2xl border border-slate-700 w-full max-w-sm">
+                  <div className="p-6 text-center">
+                      <div className="w-16 h-16 bg-blue-600/20 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
+                          <i className="fa-solid fa-rotate-left"></i>
+                      </div>
+                      <h3 className="text-lg font-bold text-white mb-2">İşe Geri Alım</h3>
+                      <p className="text-sm text-slate-300 mb-6">
+                          Bu personel 6 aydan kısa süre önce işten ayrılmış. <br/>
+                          <span className="text-yellow-400 font-bold">Yeniden eğitim verildi mi?</span>
+                      </p>
+                      
+                      <div className="flex flex-col gap-3">
+                          <button onClick={handleRehireWithNewTraining} className="w-full py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/20">
+                              Evet, Yeni Eğitim Verildi
+                          </button>
+                          <button onClick={handleRehireWithOldTraining} className="w-full py-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm">
+                              Hayır, Eski Eğitim Geçerli
+                          </button>
+                          <button onClick={() => setRehireModalOpen(false)} className="mt-2 text-xs text-slate-500 hover:text-white">
+                              İptal
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
       )}
 
       {isBulkUpdateOpen && !isReadOnly && (

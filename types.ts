@@ -42,6 +42,7 @@ export interface Calisan {
   sonEgitimTarihi: string;
   sonrakiEgitimTarihi: string;
   calismaDurumu?: 'AKTIF' | 'AYRILDI';
+  cikisTarihi?: string; // İşten çıkış tarihi (Re-hiring kontrolü için)
   onayDurumu?: 'ONAYLANDI' | 'BEKLIYOR'; // Yeni onay mekanizması
 }
 
